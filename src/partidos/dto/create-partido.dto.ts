@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, Length } from 'class-validator';
+import { IsString, IsNotEmpty, Length, IsOptional } from 'class-validator';
 
 export class CreatePartidoDto {
   @IsString()
@@ -14,4 +14,8 @@ export class CreatePartidoDto {
   @IsString()
   @IsNotEmpty()
   electionId: string;
+
+  @IsString()
+  @IsOptional()
+  logoUrl?: string;
 }

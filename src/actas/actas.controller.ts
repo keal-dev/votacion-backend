@@ -11,18 +11,23 @@ export class ActasController {
   constructor(private readonly actasService: ActasService) {}
 
   @Post()
+  @UseInterceptors(FilesInterceptor('fotos_actas', 5, { storage: actasStorage }))
   async createActa(
     @CurrentUser() user: any,
     @Body('mesaId') mesaId: string,
     @Body('observaciones') observaciones: string,
     @Body('votos') votosJson: string,
+    @UploadedFiles() files: Array<Express.Multer.File>,
   ) {
     if (!mesaId) {
       throw new BadRequestException('El mesaId es requerido');
     }
     
-    // Pasamos un arreglo vacío para los archivos, ya que ahora se suben después
-    return this.actasService.create(user.id, mesaId, [], observaciones, votosJson);
+    if (!files || files.length === 0) {
+      throw new BadRequestException('Las fotos son requeridas');
+    }
+
+    return this.actasService.create(user.id, mesaId, files, observaciones, votosJson);
   }
 
   @Post(':id/fotos')

@@ -39,22 +39,25 @@ export class SystemService {
 
   async getDashboardMetrics() {
     try {
+      const electionQuery = await this.dataSource.query('SELECT id FROM elections WHERE activa = true LIMIT 1');
+      const activeElectionId = electionQuery.length > 0 ? electionQuery[0].id : null;
+
       const usersCount = await this.dataSource.query('SELECT COUNT(*) as count FROM users');
       const personerosCount = await this.dataSource.query(`SELECT COUNT(*) as count FROM users WHERE role = 'PERSONERO'`);
       const mesasCount = await this.dataSource.query('SELECT COUNT(*) as count FROM mesas');
       const mesasAsignadasCount = await this.dataSource.query('SELECT COUNT(*) as count FROM mesas WHERE personero_id IS NOT NULL');
 
-      // Asistencias de hoy (usando sintaxis compatible con Postgres)
+      // Asistencias de la elección
       const asistenciasHoy = await this.dataSource.query(`
-        SELECT COUNT(*) as count FROM asistencias 
-        WHERE DATE(fecha_llegada) = CURRENT_DATE
-      `);
+        SELECT COUNT(*) as count FROM asistencias
+        WHERE election_id = $1
+      `, [activeElectionId]);
 
-      // Salidas de hoy
+      // Salidas de la elección
       const salidasHoy = await this.dataSource.query(`
         SELECT COUNT(*) as count FROM asistencias 
-        WHERE DATE(fecha_salida) = CURRENT_DATE
-      `);
+        WHERE fecha_salida IS NOT NULL AND election_id = $1
+      `, [activeElectionId]);
 
       const actasCount = await this.dataSource.query('SELECT COUNT(*) as count FROM actas');
 
@@ -78,7 +81,7 @@ export class SystemService {
       `);
 
       // --- ALERTAS ---
-      // 1. Ausencias: Personeros que no han marcado asistencia hoy
+      // 1. Ausencias: Personeros que no han marcado asistencia (en toda la elección)
       const ausencias = await this.dataSource.query(`
         SELECT u.id, u.name, u.lastname, m.numero_mesa, l.nombre as local_nombre
         FROM users u
@@ -87,10 +90,10 @@ export class SystemService {
         WHERE u.role = 'PERSONERO' 
         AND NOT EXISTS (
           SELECT 1 FROM asistencias a 
-          WHERE a.user_id = u.id AND DATE(a.fecha_llegada) = CURRENT_DATE
+          WHERE a.user_id = u.id AND a.election_id = $1
         )
         LIMIT 5
-      `);
+      `, [activeElectionId]);
 
       // 2. Retrasos: Mesas asignadas sin actas registradas
       const retrasos = await this.dataSource.query(`
@@ -124,7 +127,6 @@ export class SystemService {
           EXTRACT(HOUR FROM "createdAt") as hora, 
           COUNT(*) as cantidad 
         FROM actas 
-        WHERE DATE("createdAt") = CURRENT_DATE 
         GROUP BY EXTRACT(HOUR FROM "createdAt")
         ORDER BY hora ASC
       `);
@@ -142,6 +144,8 @@ export class SystemService {
           u.id, u.name, u.lastname, u.dni,
           MAX(l.nombre) as local_nombre,
           MAX(l.distrito) as local_distrito,
+          MAX(l.centro_poblado) as local_centro_poblado,
+          STRING_AGG(m_base.numero_mesa, ', ') as mesas_numeros,
           (SELECT COUNT(DISTINCT m.id) FROM mesas m WHERE m.personero_id = u.id) as total_mesas,
           (
             SELECT COUNT(DISTINCT a.mesa_id) 
@@ -152,13 +156,13 @@ export class SystemService {
           (
             SELECT a.fecha_llegada 
             FROM asistencias a 
-            WHERE a.user_id = u.id AND DATE(a.fecha_llegada) = CURRENT_DATE 
+            WHERE a.user_id = u.id AND a.election_id = $1
             LIMIT 1
           ) as check_in,
           (
             SELECT a.fecha_salida 
             FROM asistencias a 
-            WHERE a.user_id = u.id AND DATE(a.fecha_llegada) = CURRENT_DATE 
+            WHERE a.user_id = u.id AND a.election_id = $1
             LIMIT 1
           ) as check_out
         FROM users u
@@ -166,7 +170,7 @@ export class SystemService {
         LEFT JOIN locales l ON m_base.local_id = l.id
         WHERE u.role = 'PERSONERO'
         GROUP BY u.id, u.name, u.lastname, u.dni
-      `);
+      `, [activeElectionId]);
 
       // Ordenar en Node: 1. Ausentes, 2. Retrasados (con check-in pero 0 actas), 3. Activos, 4. Completados
       const progresoPersoneros = progresoPersonerosData.sort((a: any, b: any) => {
@@ -223,16 +227,16 @@ export class SystemService {
 
       if (local && local.trim() !== '') {
         whereClause = 'WHERE l.nombre = $1';
-        whereActas = 'WHERE l.nombre = $1 AND DATE(a."createdAt") = CURRENT_DATE';
+        whereActas = 'WHERE l.nombre = $1';
         whereVotos = "WHERE v.nivel = 'DISTRITAL' AND v.tipo = 'CANDIDATO' AND l.nombre = $1";
         params.push(local);
       } else if (distrito && distrito.trim() !== '') {
         whereClause = 'WHERE l.distrito = $1';
-        whereActas = 'WHERE l.distrito = $1 AND DATE(a."createdAt") = CURRENT_DATE';
+        whereActas = 'WHERE l.distrito = $1';
         whereVotos = "WHERE v.nivel = 'DISTRITAL' AND v.tipo = 'CANDIDATO' AND l.distrito = $1";
         params.push(distrito);
       } else {
-        whereActas = 'WHERE DATE("createdAt") = CURRENT_DATE';
+        whereActas = '';
         whereVotos = "WHERE v.nivel = 'DISTRITAL' AND v.tipo = 'CANDIDATO'";
       }
 
@@ -247,6 +251,7 @@ export class SystemService {
             SUM(v.cantidad) as total_votos,
             c.nombre as candidato_nombres,
             c.apellidos as candidato_apellidos,
+            c.foto_url as candidato_foto,
             p.nombre as partido_nombre,
             p.logo_url as partido_logo
           FROM votos v
@@ -256,7 +261,7 @@ export class SystemService {
           LEFT JOIN candidatos c ON v.candidato_id = c.id
           LEFT JOIN partidos p ON c.partido_id = p.id
           ${whereClause}
-          GROUP BY v.nivel, v.tipo, c.id, p.id, p.logo_url
+          GROUP BY v.nivel, v.tipo, c.id, c.foto_url, p.id, p.logo_url
           ORDER BY total_votos DESC
         `, params);
       } else {
@@ -270,12 +275,13 @@ export class SystemService {
             SUM(v.cantidad) as total_votos,
             c.nombre as candidato_nombres,
             c.apellidos as candidato_apellidos,
+            c.foto_url as candidato_foto,
             p.nombre as partido_nombre,
             p.logo_url as partido_logo
           FROM votos v
           LEFT JOIN candidatos c ON v.candidato_id = c.id
           LEFT JOIN partidos p ON c.partido_id = p.id
-          GROUP BY v.nivel, v.tipo, c.id, p.id, p.logo_url
+          GROUP BY v.nivel, v.tipo, c.id, c.foto_url, p.id, p.logo_url
           ORDER BY total_votos DESC
         `);
       }
@@ -400,9 +406,12 @@ export class SystemService {
       let localesLista = [];
       if (distrito && distrito.trim() !== '') {
         const localesQuery = await this.dataSource.query(`
-          SELECT DISTINCT nombre FROM locales WHERE distrito = $1 ORDER BY nombre ASC
+          SELECT DISTINCT nombre, centro_poblado FROM locales WHERE distrito = $1 ORDER BY nombre ASC
         `, [distrito]);
-        localesLista = localesQuery.map((l: any) => l.nombre);
+        localesLista = localesQuery.map((l: any) => ({
+          nombre: l.nombre,
+          label: l.centro_poblado ? `${l.centro_poblado} - ${l.nombre}` : l.nombre
+        }));
       }
 
       return {

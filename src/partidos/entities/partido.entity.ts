@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { Election } from '../../elections/entities/election.entity';
 
 @Entity('partidos')
@@ -15,7 +15,7 @@ export class Partido {
   @Column({ type: 'text', nullable: true })
   logo_url: string | null;
 
-  @ManyToOne(() => Election)
+  @ManyToOne(() => Election, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'election_id' })
   election: Election;
 
@@ -24,7 +24,4 @@ export class Partido {
 
   @UpdateDateColumn()
   updatedAt: Date;
-
-  @DeleteDateColumn()
-  deletedAt: Date;
 }

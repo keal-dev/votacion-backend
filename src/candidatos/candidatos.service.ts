@@ -192,6 +192,6 @@ export class CandidatosService {
       await this.deleteCloudinaryImage(candidato.foto_url);
     }
 
-    return this.candidatoRepository.softRemove(candidato);
+    return this.candidatoRepository.remove(candidato);
   }
 }

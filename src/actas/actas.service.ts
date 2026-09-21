@@ -92,22 +92,27 @@ export class ActasService {
     const totalProvincial = sums[CargoCandidato.PROVINCIAL];
     const totalDistrital = sums[CargoCandidato.DISTRITAL];
 
-    // Identificar qué niveles realmente tuvieron votación (activos)
-    const activeTotals: { name: string; total: number }[] = [];
-    if (totalRegional > 0) activeTotals.push({ name: 'Región', total: totalRegional });
-    if (totalProvincial > 0) activeTotals.push({ name: 'Provincia', total: totalProvincial });
-    if (totalDistrital > 0) activeTotals.push({ name: 'Distrito', total: totalDistrital });
+    const maxTotal = Math.max(totalRegional, totalProvincial, totalDistrital);
 
-    // Si hay más de un nivel activo, todos deben sumar exactamente la misma cantidad
-    if (activeTotals.length > 1) {
-      const referenceTotal = activeTotals[0].total;
-      const allMatch = activeTotals.every(t => t.total === referenceTotal);
-      if (!allMatch) {
-        throw new BadRequestException(`Inconsistencia: Los niveles activos deben sumar la misma cantidad de votos. Región: ${totalRegional}, Provincia: ${totalProvincial}, Distrito: ${totalDistrital}`);
-      }
+    if (maxTotal === 0) {
+      throw new BadRequestException('Debe ingresar al menos un voto antes de guardar el acta.');
     }
 
-    const maxTotal = Math.max(totalRegional, totalProvincial, totalDistrital);
+    // Verificar en la base de datos si existen candidatos para cada nivel
+    const hasRegionalCandidates = await this.candidatoRepository.count({ where: { cargo: CargoCandidato.REGIONAL } }) > 0;
+    const hasProvincialCandidates = await this.candidatoRepository.count({ where: { cargo: CargoCandidato.PROVINCIAL } }) > 0;
+    const hasDistritalCandidates = await this.candidatoRepository.count({ where: { cargo: CargoCandidato.DISTRITAL } }) > 0;
+
+    // Si existen candidatos para un nivel, es OBLIGATORIO que su total de votos coincida con el máximo
+    if (hasRegionalCandidates && totalRegional !== maxTotal) {
+      throw new BadRequestException(`Inconsistencia: Faltan registrar votos en la sección Regional. Todos los niveles deben sumar la misma cantidad.`);
+    }
+    if (hasProvincialCandidates && totalProvincial !== maxTotal) {
+      throw new BadRequestException(`Inconsistencia: Faltan registrar votos en la sección Provincial. Todos los niveles deben sumar la misma cantidad.`);
+    }
+    if (hasDistritalCandidates && totalDistrital !== maxTotal) {
+      throw new BadRequestException(`Inconsistencia: Faltan registrar votos en la sección Distrital. Todos los niveles deben sumar la misma cantidad.`);
+    }
 
     const ciudadanosVotaronCalculado = maxTotal;
 
@@ -182,7 +187,7 @@ export class ActasService {
     }
 
     if (local) {
-      query.andWhere('local.nombre = :local', { local });
+      query.andWhere('local.id = :local', { local });
     }
 
     if (search) {

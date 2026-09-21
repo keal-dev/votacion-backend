@@ -14,4 +14,8 @@ export class UpdatePartidoDto {
     @IsString()
     @IsOptional()
     electionId?: string;
+
+    @IsString()
+    @IsOptional()
+    logoUrl?: string;
 }

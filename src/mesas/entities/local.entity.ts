@@ -21,6 +21,9 @@ export class Local {
   @Column({ length: 100 })
   distrito: string;
 
+  @Column({ length: 150, nullable: true })
+  centro_poblado: string;
+
   @OneToMany(() => Mesa, (mesa) => mesa.local)
   mesas: Mesa[];
 

@@ -49,12 +49,25 @@ export class UsersService {
     return this.usersRepository.findOne({ where: { dni }, relations: { election: true } });
   }
 
+  async findByPhone(phone: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { phone } });
+  }
+
   async create(createUserDto: CreateUserDto, imageUrl?: string): Promise<User> {
     // Check DNI
     const existing = await this.findByDni(createUserDto.dni);
     if (existing) {
       if (imageUrl) await this.deleteCloudinaryImage(imageUrl);
       throw new ConflictException('Ya existe un usuario con este DNI');
+    }
+
+    // Check Phone uniqueness if provided
+    if (createUserDto.phone && createUserDto.phone.trim() !== '') {
+      const existingPhone = await this.findByPhone(createUserDto.phone);
+      if (existingPhone) {
+        if (imageUrl) await this.deleteCloudinaryImage(imageUrl);
+        throw new ConflictException('Ya existe un usuario con este teléfono');
+      }
     }
 
     let election: Election | null = null;
@@ -80,6 +93,13 @@ export class UsersService {
     return this.usersRepository.save(user);
   }
 
+  async updatePassword(id: string, newPassword: string): Promise<void> {
+    const user = await this.findOne(id);
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    user.password = newPassword;
+    await this.usersRepository.save(user);
+  }
+
   async update(id: string, updateUserDto: UpdateUserDto, imageUrl?: string): Promise<User> {
     const user = await this.findOne(id);
     if (!user) {
@@ -99,8 +119,20 @@ export class UsersService {
 
     if (updateUserDto.name) user.name = updateUserDto.name;
     if (updateUserDto.lastname) user.lastname = updateUserDto.lastname;
-    if (updateUserDto.phone !== undefined) user.phone = updateUserDto.phone;
+    
+    // Check Phone uniqueness if provided and changed
+    if (updateUserDto.phone !== undefined && updateUserDto.phone !== user.phone) {
+      if (updateUserDto.phone.trim() !== '') {
+        const existingPhone = await this.findByPhone(updateUserDto.phone);
+        if (existingPhone) {
+          if (imageUrl) await this.deleteCloudinaryImage(imageUrl);
+          throw new ConflictException('Ya existe un usuario con este teléfono');
+        }
+      }
+      user.phone = updateUserDto.phone;
+    }
     if (updateUserDto.role) user.role = updateUserDto.role;
+    if (updateUserDto.password) user.password = updateUserDto.password;
 
     if (updateUserDto.electionId) {
       const election = await this.electionRepository.findOneBy({ id: updateUserDto.electionId });
@@ -131,6 +163,6 @@ export class UsersService {
     if (user.image) {
       await this.deleteCloudinaryImage(user.image);
     }
-    await this.usersRepository.softRemove(user);
+    await this.usersRepository.remove(user);
   }
 }

@@ -13,14 +13,21 @@ import { candidatosStorage } from '../common/config/cloudinary.config';
 export class CandidatosController {
   constructor(private readonly candidatosService: CandidatosService) { }
 
-  @Post()
+  @Post('upload-foto')
   @UseInterceptors(FileInterceptor('foto', { storage: candidatosStorage }))
-  create(
-    @Body() createCandidatoDto: CreateCandidatoDto,
-    @UploadedFile() file?: any
-  ) {
-    const fotoUrl = file ? file.path : null;
-    return this.candidatosService.create({ ...createCandidatoDto, fotoUrl });
+  uploadFoto(@UploadedFile() file: any) {
+    if (!file) {
+      return { fotoUrl: null };
+    }
+    return { fotoUrl: file.path };
+  }
+
+  @Post()
+  create(@Body() createCandidatoDto: CreateCandidatoDto) {
+    return this.candidatosService.create({ 
+      ...createCandidatoDto, 
+      fotoUrl: createCandidatoDto.fotoUrl || null 
+    });
   }
 
   @Get('election/:electionId')
@@ -34,14 +41,11 @@ export class CandidatosController {
   }
 
   @Patch(':id')
-  @UseInterceptors(FileInterceptor('foto', { storage: candidatosStorage }))
   update(
     @Param('id') id: string,
-    @Body() updateCandidatoDto: UpdateCandidatoDto,
-    @UploadedFile() file?: any
+    @Body() updateCandidatoDto: UpdateCandidatoDto
   ) {
-    const fotoUrl = file ? file.path : undefined;
-    return this.candidatosService.update(id, { ...updateCandidatoDto, fotoUrl });
+    return this.candidatosService.update(id, updateCandidatoDto);
   }
 
   @Delete(':id')

@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { Partido } from '../../partidos/entities/partido.entity';
 import { Election } from '../../elections/entities/election.entity';
 import { CargoCandidato } from '../enums/cargo.enum';
@@ -32,11 +32,11 @@ export class Candidato {
   @Column({ type: 'text', nullable: true })
   foto_url: string | null;
 
-  @ManyToOne(() => Partido)
+  @ManyToOne(() => Partido, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'partido_id' })
   partido: Partido;
 
-  @ManyToOne(() => Election)
+  @ManyToOne(() => Election, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'election_id' })
   election: Election;
 
@@ -45,7 +45,4 @@ export class Candidato {
 
   @UpdateDateColumn()
   updatedAt: Date;
-
-  @DeleteDateColumn()
-  deletedAt: Date;
 }

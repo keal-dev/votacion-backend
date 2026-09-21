@@ -28,25 +28,21 @@ export class AsistenciasService {
       throw new NotFoundException('User not found');
     }
 
-    // Check if user already checked in today
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
-
+    // Check if user already checked in for this election
     const existing = await this.asistenciaRepository.findOne({
       where: {
         user: { id: userId },
-        fecha_llegada: Between(startOfDay, endOfDay),
+        election: { id: activeElection.id },
       },
     });
 
     if (existing) {
-      throw new BadRequestException('Ya has registrado tu asistencia el día de hoy');
+      throw new BadRequestException('Ya has registrado tu asistencia para esta elección');
     }
 
     const asistencia = this.asistenciaRepository.create({
       user,
+      election: activeElection,
       latitud_llegada: createAsistenciaDto.latitud,
       longitud_llegada: createAsistenciaDto.longitud,
     });
@@ -55,25 +51,24 @@ export class AsistenciasService {
   }
 
   async checkOut(userId: string, updateDto: CreateAsistenciaDto) {
-    // Find today's check-in
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+    const activeElection = await this.electionRepository.findOne({ where: { activa: true } });
+    if (!activeElection) {
+      throw new BadRequestException('No hay una elección activa.');
+    }
 
     const asistencia = await this.asistenciaRepository.findOne({
       where: {
         user: { id: userId },
-        fecha_llegada: Between(startOfDay, endOfDay),
+        election: { id: activeElection.id },
       },
     });
 
     if (!asistencia) {
-      throw new BadRequestException('No tienes un registro de asistencia el día de hoy para hacer check-out');
+      throw new BadRequestException('No tienes un registro de asistencia para hacer check-out');
     }
 
     if (asistencia.fecha_salida) {
-      throw new BadRequestException('Ya has registrado tu salida el día de hoy');
+      throw new BadRequestException('Ya has registrado tu salida para esta elección');
     }
 
 
@@ -86,15 +81,13 @@ export class AsistenciasService {
   }
 
   async getTodayStatus(userId: string) {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+    const activeElection = await this.electionRepository.findOne({ where: { activa: true } });
+    if (!activeElection) return null;
 
     const asistencia = await this.asistenciaRepository.findOne({
       where: {
         user: { id: userId },
-        fecha_llegada: Between(startOfDay, endOfDay),
+        election: { id: activeElection.id },
       },
     });
 

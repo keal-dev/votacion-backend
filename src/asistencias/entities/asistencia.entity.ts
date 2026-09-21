@@ -8,6 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import { Election } from '../../elections/entities/election.entity';
 
 @Entity('asistencias')
 export class Asistencia {
@@ -17,6 +18,10 @@ export class Asistencia {
   @ManyToOne(() => User, (user) => user.asistencias, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
+
+  @ManyToOne(() => Election, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'election_id' })
+  election: Election;
 
   @Column({ type: 'decimal', precision: 10, scale: 6 })
   latitud_llegada: number;

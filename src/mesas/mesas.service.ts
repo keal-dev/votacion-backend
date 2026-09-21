@@ -74,6 +74,7 @@ export class MesasService {
         const region = row['REGION'] || row['region'];
         const provincia = row['PROVINCIA'] || row['provincia'];
         const distrito = row['DISTRITO'] || row['distrito'];
+        const centroPoblado = row['CENTRO_POBLADO'] || row['centro_poblado'] || null;
         const localNombre = row['LOCAL_NOMBRE'] || row['local_nombre'];
         const localDireccion = row['LOCAL_DIRECCION'] || row['local_direccion'];
         const mesaNumero = row['MESA_NUMERO'] || row['mesa_numero'];
@@ -99,7 +100,8 @@ export class MesasService {
               direccion: localDireccion,
               region,
               provincia,
-              distrito
+              distrito,
+              centro_poblado: centroPoblado
             });
             local = await queryRunner.manager.save(Local, local);
           }
@@ -148,8 +150,14 @@ export class MesasService {
   }
 
   async findByPersonero(personeroId: string): Promise<Mesa[]> {
+    const activeElection = await this.electionRepository.findOne({ where: { activa: true } });
+    if (!activeElection) return [];
+
     return this.mesaRepository.find({
-      where: { personero: { id: personeroId } },
+      where: { 
+        personero: { id: personeroId },
+        election: { id: activeElection.id }
+      },
       relations: { 
         local: true, 
         actas: {
@@ -197,11 +205,19 @@ export class MesasService {
   }
 
   async getLocalesNombres() {
-    const res = await this.localRepository.createQueryBuilder('local')
-      .select('local.nombre', 'nombre')
-      .distinct(true)
-      .orderBy('local.nombre', 'ASC')
-      .getRawMany();
-    return res.map(r => r.nombre);
+    const locales = await this.localRepository.find({
+      select: {
+        id: true,
+        nombre: true,
+        centro_poblado: true
+      },
+      order: { nombre: 'ASC' }
+    });
+    // Remove duplicates based on ID or name if needed, but since they are locales from the DB, just return them.
+    return locales.map(l => ({
+      id: l.id,
+      nombre: l.nombre,
+      centro_poblado: l.centro_poblado
+    }));
   }
 }

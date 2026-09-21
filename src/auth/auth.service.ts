@@ -19,11 +19,21 @@ export class AuthService {
 
     const payload = { id: user.id, dni: user.dni, role: user.role };
     const { password, ...userWithoutPassword } = user
+    const isDefaultPassword = password === user.dni;
 
     return {
       token: this.jwtService.sign(payload),
-      user: userWithoutPassword
+      user: { ...userWithoutPassword, isDefaultPassword }
     };
+  }
+
+  async changePassword(userId: string, dto: any) {
+    const user = await this.usersService.findOne(userId);
+    if (!user || user.password !== dto.currentPassword) {
+      throw new UnauthorizedException('Contraseña actual incorrecta');
+    }
+    await this.usersService.updatePassword(userId, dto.newPassword);
+    return { message: 'Contraseña actualizada con éxito' };
   }
 
 }

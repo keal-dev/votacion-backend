@@ -40,4 +40,8 @@ export class UpdateCandidatoDto {
   @IsString()
   @IsOptional()
   distrito?: string;
+
+  @IsString()
+  @IsOptional()
+  fotoUrl?: string;
 }

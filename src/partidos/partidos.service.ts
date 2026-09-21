@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Partido } from './entities/partido.entity';
@@ -34,6 +34,14 @@ export class PartidosService {
     const election = await this.electionRepository.findOneBy({ id: data.electionId });
     if (!election) throw new NotFoundException('Elección no encontrada');
 
+    // Validación: No permitir nombres duplicados en la misma elección
+    const existing = await this.partidoRepository.findOne({ 
+      where: { nombre: data.nombre, election: { id: data.electionId } } 
+    });
+    if (existing) {
+      throw new ConflictException(`Ya existe una organización política con el nombre "${data.nombre}" en esta elección.`);
+    }
+
     const partido = this.partidoRepository.create({
       nombre: data.nombre,
       siglas: data.siglas,
@@ -52,10 +60,23 @@ export class PartidosService {
   }
 
   async update(id: string, data: { nombre?: string; siglas?: string; logoUrl?: string | null }) {
-    const partido = await this.partidoRepository.findOneBy({ id });
+    const partido = await this.partidoRepository.findOne({
+      where: { id },
+      relations: { election: true }
+    });
     if (!partido) throw new NotFoundException('Partido no encontrado');
 
-    if (data.nombre) partido.nombre = data.nombre;
+    if (data.nombre && data.nombre !== partido.nombre) {
+      // Validación: No permitir cambiar a un nombre que ya existe
+      const existing = await this.partidoRepository.findOne({
+        where: { nombre: data.nombre, election: { id: partido.election.id } }
+      });
+      if (existing) {
+        throw new ConflictException(`Ya existe una organización política con el nombre "${data.nombre}" en esta elección.`);
+      }
+      partido.nombre = data.nombre;
+    }
+    
     if (data.siglas) partido.siglas = data.siglas;
     
     // Si se subió un nuevo logo y el partido ya tenía uno viejo, borramos el viejo de la nube
@@ -74,12 +95,18 @@ export class PartidosService {
     if (!partido) throw new NotFoundException('Partido no encontrado');
     
     // Si queremos ahorrar espacio, borramos la imagen cuando eliminan el partido.
-    // OJO: Como usamos "softRemove", si luego quisieras restaurar el partido de la papelera,
-    // revivirá pero su imagen ya estará borrada en Cloudinary.
+    // Al usar eliminación física (remove), los datos ya no pueden ser recuperados.
     if (partido.logo_url) {
       await this.deleteCloudinaryImage(partido.logo_url);
     }
     
-    return this.partidoRepository.softRemove(partido);
+    try {
+      return await this.partidoRepository.remove(partido);
+    } catch (error: any) {
+      if (error.code === '23503' || error.errno === 1451 || error.code === 'SQLITE_CONSTRAINT') {
+        throw new ConflictException('No se puede eliminar la organización política porque tiene candidatos inscritos o datos asociados.');
+      }
+      throw error;
+    }
   }
 }

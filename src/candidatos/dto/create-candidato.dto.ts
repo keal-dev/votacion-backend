@@ -39,4 +39,8 @@ export class CreateCandidatoDto {
   @IsString()
   @IsOptional()
   distrito?: string;
+
+  @IsString()
+  @IsOptional()
+  fotoUrl?: string;
 }

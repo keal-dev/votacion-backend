@@ -12,6 +12,9 @@ export class Partido {
   @Column({ length: 20 })
   siglas: string;
 
+  @Column({ type: 'int', default: 0 })
+  orden: number;
+
   @Column({ type: 'text', nullable: true })
   logo_url: string | null;
 

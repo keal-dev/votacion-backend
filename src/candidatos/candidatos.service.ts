@@ -126,6 +126,7 @@ export class CandidatosService {
         })
       )
       .orderBy('candidato.cargo', 'ASC')
+      .addOrderBy('partido.orden', 'ASC')
       .addOrderBy('partido.nombre', 'ASC')
       .getMany();
   }

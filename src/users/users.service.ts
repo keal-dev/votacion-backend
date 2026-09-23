@@ -6,6 +6,11 @@ import { Election } from '../elections/entities/election.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { v2 as cloudinary } from 'cloudinary';
+import { DataSource } from 'typeorm';
+import { BadRequestException } from '@nestjs/common';
+import { Role } from '../auth/enums/role.enum';
+import * as streamifier from 'streamifier';
+const csv = require('csv-parser');
 
 @Injectable()
 export class UsersService {
@@ -14,6 +19,7 @@ export class UsersService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Election)
     private readonly electionRepository: Repository<Election>,
+    private readonly dataSource: DataSource,
   ) { }
 
   private async deleteCloudinaryImage(url: string) {
@@ -164,5 +170,105 @@ export class UsersService {
       await this.deleteCloudinaryImage(user.image);
     }
     await this.usersRepository.remove(user);
+  }
+
+  async createManyFromCsv(electionId: string, fileBuffer: Buffer): Promise<any> {
+    const election = await this.electionRepository.findOneBy({ id: electionId });
+    if (!election) throw new NotFoundException('Elección no encontrada');
+
+    const results: any[] = [];
+
+    // Parse CSV
+    await new Promise((resolve, reject) => {
+      streamifier.createReadStream(fileBuffer)
+        .pipe(csv({
+          separator: ';',
+          mapHeaders: ({ header }) => header.trim().replace(/^[\uFEFF\u200B]/g, '').toLowerCase()
+        }))
+        .on('data', (data: any) => results.push(data))
+        .on('end', resolve)
+        .on('error', reject);
+    });
+
+    if (results.length === 0) {
+      throw new BadRequestException('El archivo CSV/Excel está vacío o no tiene el formato correcto.');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const existingDnisInDb = await queryRunner.manager.find(User, { select: { dni: true } });
+      const dbDnisSet = new Set(existingDnisInDb.map(u => u.dni));
+      
+      const existingPhonesInDb = await queryRunner.manager.find(User, { select: { phone: true } });
+      const dbPhonesSet = new Set(existingPhonesInDb.filter(u => u.phone).map(u => u.phone));
+
+      const currentCsvDnisSet = new Set<string>();
+      const currentCsvPhonesSet = new Set<string>();
+
+      for (let i = 0; i < results.length; i++) {
+        const row = results[i];
+        const rowNumber = i + 2;
+
+        const name = row['nombres']?.trim();
+        const lastname = row['apellidos']?.trim();
+        const dni = row['dni']?.trim();
+        const phone = row['telefono']?.trim() || null;
+        let roleRaw = row['rol']?.trim()?.toUpperCase();
+
+        if (!name) throw new BadRequestException(`Fila ${rowNumber}: NOMBRES es obligatorio.`);
+        if (!lastname) throw new BadRequestException(`Fila ${rowNumber}: APELLIDOS es obligatorio.`);
+        if (!dni) throw new BadRequestException(`Fila ${rowNumber}: DNI es obligatorio.`);
+        if (!roleRaw) throw new BadRequestException(`Fila ${rowNumber}: ROL es obligatorio.`);
+
+        // Validate Role
+        if (roleRaw !== Role.PERSONERO && roleRaw !== Role.COORDINADOR && roleRaw !== Role.ADMIN) {
+          throw new BadRequestException(`Fila ${rowNumber}: ROL inválido ("${roleRaw}"). Debe ser PERSONERO, COORDINADOR o ADMIN.`);
+        }
+
+        // Validate DNI duplication
+        if (dbDnisSet.has(dni)) {
+          throw new BadRequestException(`Fila ${rowNumber}: El DNI "${dni}" ya está registrado en el sistema.`);
+        }
+        if (currentCsvDnisSet.has(dni)) {
+          throw new BadRequestException(`Fila ${rowNumber}: El DNI "${dni}" está repetido dentro del mismo archivo Excel.`);
+        }
+        currentCsvDnisSet.add(dni);
+
+        // Validate Phone duplication
+        if (phone) {
+          if (dbPhonesSet.has(phone)) {
+            throw new BadRequestException(`Fila ${rowNumber}: El TELÉFONO "${phone}" ya está registrado en el sistema.`);
+          }
+          if (currentCsvPhonesSet.has(phone)) {
+            throw new BadRequestException(`Fila ${rowNumber}: El TELÉFONO "${phone}" está repetido dentro del mismo archivo Excel.`);
+          }
+          currentCsvPhonesSet.add(phone);
+        }
+
+        const newUser = queryRunner.manager.create(User, {
+          name,
+          lastname,
+          dni,
+          phone,
+          role: roleRaw as Role,
+          password: dni, // Plain password as DNI initially
+          image: null,
+          election
+        });
+
+        await queryRunner.manager.save(newUser);
+      }
+
+      await queryRunner.commitTransaction();
+      return { message: `Se importaron ${results.length} usuarios exitosamente.` };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

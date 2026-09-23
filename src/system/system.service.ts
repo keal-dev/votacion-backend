@@ -141,7 +141,7 @@ export class SystemService {
       // Obtenemos todos los personeros, sus locales, si hicieron check-in hoy, y cuántas mesas han procesado vs asignadas.
       const progresoPersonerosData = await this.dataSource.query(`
         SELECT 
-          u.id, u.name, u.lastname, u.dni,
+          u.id, u.name, u.lastname, u.dni, u.phone,
           MAX(l.nombre) as local_nombre,
           MAX(l.distrito) as local_distrito,
           MAX(l.centro_poblado) as local_centro_poblado,
@@ -169,7 +169,7 @@ export class SystemService {
         LEFT JOIN mesas m_base ON m_base.personero_id = u.id
         LEFT JOIN locales l ON m_base.local_id = l.id
         WHERE u.role = 'PERSONERO'
-        GROUP BY u.id, u.name, u.lastname, u.dni
+        GROUP BY u.id, u.name, u.lastname, u.dni, u.phone
       `, [activeElectionId]);
 
       // Ordenar en Node: 1. Ausentes, 2. Retrasados (con check-in pero 0 actas), 3. Activos, 4. Completados

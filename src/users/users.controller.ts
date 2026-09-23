@@ -63,6 +63,19 @@ export class UsersController {
     return this.usersService.update(id, updateUserDto, imageUrl);
   }
 
+  @Post(':electionId/bulk-csv')
+  @Roles(Role.ADMIN, Role.COORDINADOR)
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadBulkCsv(
+    @Param('electionId') electionId: string,
+    @UploadedFile() file: any,
+  ) {
+    if (!file) {
+      throw new Error('No file uploaded');
+    }
+    return this.usersService.createManyFromCsv(electionId, file.buffer);
+  }
+
   @Delete(':id')
   @Roles(Role.ADMIN, Role.COORDINADOR)
   remove(@Param('id') id: string): Promise<void> {

@@ -28,9 +28,26 @@ export class PartidosController {
     });
   }
 
+  @Post(':electionId/bulk-csv')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadBulkCsv(
+    @Param('electionId') electionId: string,
+    @UploadedFile() file: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+    return this.partidosService.createManyFromCsv(electionId, file.buffer);
+  }
+
   @Get('election/:electionId')
   findByElection(@Param('electionId') electionId: string) {
     return this.partidosService.findByElection(electionId);
+  }
+
+  @Patch('reorder')
+  reorder(@Body() updates: { id: string; orden: number }[]) {
+    return this.partidosService.reorder(updates);
   }
 
   @Patch(':id')

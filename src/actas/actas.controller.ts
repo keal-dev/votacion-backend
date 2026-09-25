@@ -1,4 +1,4 @@
-import { Controller, Post, UseInterceptors, UploadedFiles, UseGuards, Body, BadRequestException, Get, Patch, Param, Query } from '@nestjs/common';
+import { Controller, Post, UseInterceptors, UploadedFiles, UseGuards, Body, BadRequestException, Get, Patch, Param, Query, Delete } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ActasService } from './actas.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -40,6 +40,14 @@ export class ActasController {
       throw new BadRequestException('Las fotos son requeridas');
     }
     return this.actasService.uploadFotos(actaId, files);
+  }
+
+  @Delete(':actaId/fotos/:fotoId')
+  async deleteFoto(
+    @Param('actaId') actaId: string,
+    @Param('fotoId') fotoId: string
+  ) {
+    return this.actasService.deleteFoto(actaId, fotoId);
   }
 
   @Get('auditoria')

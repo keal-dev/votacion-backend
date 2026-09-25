@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource, Brackets } from 'typeorm';
 import { Acta } from './entities/acta.entity';
 import { Voto, TipoVoto } from './entities/voto.entity';
 import { Mesa, EstadoMesa } from '../mesas/entities/mesa.entity';
@@ -9,6 +9,7 @@ import { CargoCandidato } from '../candidatos/enums/cargo.enum';
 import { Election } from '../elections/entities/election.entity';
 import { FotoActa } from './entities/foto-acta.entity';
 import { async } from 'rxjs';
+import { v2 as cloudinary } from 'cloudinary';
 
 @Injectable()
 export class ActasService {
@@ -25,6 +26,7 @@ export class ActasService {
     private electionRepository: Repository<Election>,
     @InjectRepository(FotoActa)
     private fotoActaRepository: Repository<FotoActa>,
+    private readonly dataSource: DataSource,
   ) { }
 
   async create(personeroId: string, mesaId: string, files: Express.Multer.File[], observaciones: string, votosJson: string) {
@@ -33,8 +35,9 @@ export class ActasService {
       throw new BadRequestException('La elección aún no ha iniciado o ya ha finalizado.');
     }
 
-    const mesa = await this.mesaRepository.findOne({ where: { id: mesaId } });
+    const mesa = await this.mesaRepository.findOne({ where: { id: mesaId }, relations: { local: true } });
     if (!mesa) throw new BadRequestException('Mesa no encontrada');
+    if (!mesa.local) throw new BadRequestException('La mesa no tiene un local asignado');
 
     // Analizar JSON de votos
     let votosData: any;
@@ -48,6 +51,7 @@ export class ActasService {
     const votosEntitiesToCreate: any[] = [];
     const sums = {
       [CargoCandidato.REGIONAL]: 0,
+      [CargoCandidato.CONSEJERO]: 0,
       [CargoCandidato.PROVINCIAL]: 0,
       [CargoCandidato.DISTRITAL]: 0
     };
@@ -67,6 +71,7 @@ export class ActasService {
         let nivel: CargoCandidato;
         if (parts[2] === 'distrital') nivel = CargoCandidato.DISTRITAL;
         else if (parts[2] === 'provincial') nivel = CargoCandidato.PROVINCIAL;
+        else if (parts[2] === 'consejero') nivel = CargoCandidato.CONSEJERO;
         else nivel = CargoCandidato.REGIONAL;
 
         sums[nivel] += cantidad;
@@ -89,23 +94,84 @@ export class ActasService {
     }
 
     const totalRegional = sums[CargoCandidato.REGIONAL];
+    const totalConsejero = sums[CargoCandidato.CONSEJERO];
     const totalProvincial = sums[CargoCandidato.PROVINCIAL];
     const totalDistrital = sums[CargoCandidato.DISTRITAL];
 
-    const maxTotal = Math.max(totalRegional, totalProvincial, totalDistrital);
+    const maxTotal = Math.max(totalRegional, totalConsejero, totalProvincial, totalDistrital);
 
     if (maxTotal === 0) {
       throw new BadRequestException('Debe ingresar al menos un voto antes de guardar el acta.');
     }
 
-    // Verificar en la base de datos si existen candidatos para cada nivel
+    // --- RELLENO DE CEROS OBLIGATORIO ---
+    // Aseguramos que existan registros con cantidad 0 para todo candidato de la mesa que no fue enviado, y para votos especiales
+    const local = mesa.local;
+    if (local) {
+      const safeUpper = (str?: string | null) => str ? str.trim().toUpperCase() : '';
+      const lReg = safeUpper(local.region);
+      const lProv = safeUpper(local.provincia);
+      const lDist = safeUpper(local.distrito);
+
+      const allElectionCandidates = await this.candidatoRepository.find({
+        where: { election: { id: activeElection.id } }
+      });
+
+      const validCandidatesForMesa = allElectionCandidates.filter(c => {
+        const cReg = safeUpper(c.region);
+        const cProv = safeUpper(c.provincia);
+        const cDist = safeUpper(c.distrito);
+        
+        if (c.cargo === CargoCandidato.REGIONAL) return cReg === lReg;
+        if (c.cargo === CargoCandidato.CONSEJERO || c.cargo === CargoCandidato.PROVINCIAL) return cReg === lReg && cProv === lProv;
+        if (c.cargo === CargoCandidato.DISTRITAL) return cReg === lReg && cProv === lProv && cDist === lDist;
+        return false;
+      });
+
+      const nivelesActivos = [...new Set(validCandidatesForMesa.map(c => c.cargo))];
+
+      // 1. Rellenar candidatos faltantes
+      for (const c of validCandidatesForMesa) {
+        const existe = votosEntitiesToCreate.some(v => v.tipo === TipoVoto.CANDIDATO && v.candidato?.id === c.id);
+        if (!existe) {
+          votosEntitiesToCreate.push({
+            tipo: TipoVoto.CANDIDATO,
+            nivel: c.cargo,
+            candidato: c,
+            cantidad: 0
+          });
+        }
+      }
+
+      // 2. Rellenar votos especiales faltantes (blanco, nulo, impugnado)
+      const tiposEspeciales = [TipoVoto.BLANCO, TipoVoto.NULO, TipoVoto.IMPUGNADO];
+      for (const nivel of nivelesActivos) {
+        for (const tipo of tiposEspeciales) {
+          const existe = votosEntitiesToCreate.some(v => v.tipo === tipo && v.nivel === nivel);
+          if (!existe) {
+            votosEntitiesToCreate.push({
+              tipo,
+              nivel,
+              candidato: null,
+              cantidad: 0
+            });
+          }
+        }
+      }
+    }
+    // --- FIN RELLENO DE CEROS ---
+
     const hasRegionalCandidates = await this.candidatoRepository.count({ where: { cargo: CargoCandidato.REGIONAL } }) > 0;
+    const hasConsejeroCandidates = await this.candidatoRepository.count({ where: { cargo: CargoCandidato.CONSEJERO } }) > 0;
     const hasProvincialCandidates = await this.candidatoRepository.count({ where: { cargo: CargoCandidato.PROVINCIAL } }) > 0;
     const hasDistritalCandidates = await this.candidatoRepository.count({ where: { cargo: CargoCandidato.DISTRITAL } }) > 0;
 
     // Si existen candidatos para un nivel, es OBLIGATORIO que su total de votos coincida con el máximo
     if (hasRegionalCandidates && totalRegional !== maxTotal) {
       throw new BadRequestException(`Inconsistencia: Faltan registrar votos en la sección Regional. Todos los niveles deben sumar la misma cantidad.`);
+    }
+    if (hasConsejeroCandidates && totalConsejero !== maxTotal) {
+      throw new BadRequestException(`Inconsistencia: Faltan registrar votos en la sección Consejero. Todos los niveles deben sumar la misma cantidad.`);
     }
     if (hasProvincialCandidates && totalProvincial !== maxTotal) {
       throw new BadRequestException(`Inconsistencia: Faltan registrar votos en la sección Provincial. Todos los niveles deben sumar la misma cantidad.`);
@@ -121,34 +187,46 @@ export class ActasService {
       throw new BadRequestException(`El número total de votos ingresados (${ciudadanosVotaronCalculado}) es mayor a los electores hábiles de la mesa (${mesa.cantidad_electores})`);
     }
 
-    // Si todo es válido, guardamos el acta
-    const acta = this.actaRepository.create({
-      mesa: { id: mesaId },
-      personero: { id: personeroId },
-      observaciones: observaciones || null,
-      ciudadanos_votaron: ciudadanosVotaronCalculado,
-    });
-    const savedActa = await this.actaRepository.save(acta);
+    // Si todo es válido, guardamos el acta dentro de una transacción
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    // Guardar Fotos
-    const urls = files.map(file => file.path);
-    if (urls.length > 0) {
-      const fotosToSave = urls.map(url => this.fotoActaRepository.create({ url, acta: savedActa }));
-      await this.fotoActaRepository.save(fotosToSave);
+    try {
+      const acta = queryRunner.manager.create(Acta, {
+        mesa: { id: mesaId },
+        personero: { id: personeroId },
+        observaciones: observaciones || null,
+        ciudadanos_votaron: ciudadanosVotaronCalculado,
+      });
+      const savedActa = await queryRunner.manager.save(acta);
+
+      // Guardar Fotos
+      const urls = files.map(file => file.path);
+      if (urls.length > 0) {
+        const fotosToSave = urls.map(url => queryRunner.manager.create(FotoActa, { url, acta: savedActa }));
+        await queryRunner.manager.save(fotosToSave);
+      }
+
+      // Guardar Votos
+      if (votosEntitiesToCreate.length > 0) {
+        const votosDataToSave = votosEntitiesToCreate.map(v => ({ ...v, acta: savedActa }));
+        const votosEntities = queryRunner.manager.create(Voto, votosDataToSave);
+        await queryRunner.manager.save(votosEntities);
+      }
+
+      // Actualizar estado de la mesa a ENVIADA
+      mesa.estado = EstadoMesa.ENVIADA;
+      await queryRunner.manager.save(mesa);
+
+      await queryRunner.commitTransaction();
+      return { message: 'Acta y votos guardados correctamente', actaId: savedActa.id };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    // Guardar Votos
-    if (votosEntitiesToCreate.length > 0) {
-      const votosDataToSave = votosEntitiesToCreate.map(v => ({ ...v, acta: savedActa }));
-      const votosEntities = this.votoRepository.create(votosDataToSave);
-      await this.votoRepository.save(votosEntities);
-    }
-
-    // Actualizar estado de la mesa a ENVIADA
-    mesa.estado = EstadoMesa.ENVIADA;
-    await this.mesaRepository.save(mesa);
-
-    return { message: 'Acta y votos guardados correctamente', actaId: savedActa.id };
   }
 
   async uploadFotos(actaId: string, files: Express.Multer.File[]) {
@@ -306,5 +384,26 @@ export class ActasService {
     }
 
     return { message: 'Votos actualizados correctamente' };
+  }
+
+  async deleteFoto(actaId: string, fotoId: string) {
+    const foto = await this.fotoActaRepository.findOne({ where: { id: fotoId, acta: { id: actaId } } });
+    if (!foto) {
+      throw new NotFoundException('Foto no encontrada');
+    }
+
+    try {
+      const parts = foto.url.split('/');
+      const filename = parts[parts.length - 1];
+      const publicId = filename.split('.')[0];
+      const fullPublicId = `votacion/actas/${publicId}`;
+
+      await cloudinary.uploader.destroy(fullPublicId);
+    } catch (error) {
+      console.error('Error eliminando foto de Cloudinary:', error);
+    }
+
+    await this.fotoActaRepository.remove(foto);
+    return { message: 'Foto eliminada correctamente' };
   }
 }

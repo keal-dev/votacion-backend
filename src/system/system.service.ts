@@ -37,6 +37,33 @@ export class SystemService {
     }
   }
 
+  async clearVotingData(): Promise<{ message: string }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Orden inverso a las dependencias
+      await queryRunner.query('DELETE FROM votos');
+      await queryRunner.query('DELETE FROM actas');
+      await queryRunner.query('DELETE FROM asistencias');
+
+      // Restablecer el estado de las mesas a PENDIENTE
+      await queryRunner.query("UPDATE mesas SET estado = 'PENDIENTE'");
+
+      await queryRunner.commitTransaction();
+
+      return { message: 'Datos de votación limpiados correctamente. Se conservaron configuraciones y usuarios.' };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      console.error('Error al limpiar datos de votación:', error);
+      throw new InternalServerErrorException('Error al intentar limpiar los datos de votación');
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   async getDashboardMetrics() {
     try {
       const electionQuery = await this.dataSource.query('SELECT id FROM elections WHERE activa = true LIMIT 1');
@@ -216,7 +243,7 @@ export class SystemService {
     }
   }
 
-  async getResultados(distrito?: string, local?: string) {
+  async getResultados(provincia?: string, distrito?: string, local?: string) {
     try {
       // 1. Resumen de Mesas
       let mesasTotalesQ, mesasRegistradasQ, votosData;
@@ -235,6 +262,11 @@ export class SystemService {
         whereActas = 'WHERE l.distrito = $1';
         whereVotos = "WHERE v.nivel = 'DISTRITAL' AND v.tipo = 'CANDIDATO' AND l.distrito = $1";
         params.push(distrito);
+      } else if (provincia && provincia.trim() !== '') {
+        whereClause = 'WHERE l.provincia = $1';
+        whereActas = 'WHERE l.provincia = $1';
+        whereVotos = "WHERE v.nivel = 'DISTRITAL' AND v.tipo = 'CANDIDATO' AND l.provincia = $1";
+        params.push(provincia);
       } else {
         whereActas = '';
         whereVotos = "WHERE v.nivel = 'DISTRITAL' AND v.tipo = 'CANDIDATO'";
@@ -292,17 +324,40 @@ export class SystemService {
       const avanceGeneral = mesasTotales > 0 ? (mesasRegistradas / mesasTotales) * 100 : 0;
 
       // 3. Mapa de Avance por Distrito (Termómetro)
-      const distritosData = await this.dataSource.query(`
-        SELECT 
-          l.distrito, 
-          COUNT(DISTINCT m.id) as total_mesas,
-          COUNT(DISTINCT a.mesa_id) as mesas_registradas
-        FROM locales l
-        JOIN mesas m ON m.local_id = l.id
-        LEFT JOIN actas a ON a.mesa_id = m.id
-        GROUP BY l.distrito
-        ORDER BY l.distrito ASC
-      `);
+      const distritosParams: string[] = [];
+      let distritosWhere = '';
+      if (provincia && provincia.trim() !== '') {
+        distritosWhere = 'WHERE l.provincia = $1';
+        distritosParams.push(provincia);
+      }
+
+      let distritosData;
+      if (distritosParams.length > 0) {
+        distritosData = await this.dataSource.query(`
+          SELECT 
+            l.distrito, 
+            COUNT(DISTINCT m.id) as total_mesas,
+            COUNT(DISTINCT a.mesa_id) as mesas_registradas
+          FROM locales l
+          JOIN mesas m ON m.local_id = l.id
+          LEFT JOIN actas a ON a.mesa_id = m.id
+          ${distritosWhere}
+          GROUP BY l.distrito
+          ORDER BY l.distrito ASC
+        `, distritosParams);
+      } else {
+        distritosData = await this.dataSource.query(`
+          SELECT 
+            l.distrito, 
+            COUNT(DISTINCT m.id) as total_mesas,
+            COUNT(DISTINCT a.mesa_id) as mesas_registradas
+          FROM locales l
+          JOIN mesas m ON m.local_id = l.id
+          LEFT JOIN actas a ON a.mesa_id = m.id
+          GROUP BY l.distrito
+          ORDER BY l.distrito ASC
+        `);
+      }
 
       // 4. Velocidad de escrutinio (Timeline)
       let timelineData;
@@ -414,6 +469,11 @@ export class SystemService {
         }));
       }
 
+      const provinciasQuery = await this.dataSource.query(`
+        SELECT DISTINCT provincia FROM locales WHERE provincia IS NOT NULL AND provincia != '' ORDER BY provincia ASC
+      `);
+      const provinciasLista = provinciasQuery.map((p: any) => p.provincia);
+
       return {
         resumen: {
           mesasTotales,
@@ -425,7 +485,8 @@ export class SystemService {
         distritos: distritosData,
         timeline,
         distritosGanados,
-        localesLista
+        localesLista,
+        provinciasLista
       };
     } catch (error) {
       console.error('Error fetching resultados:', error);

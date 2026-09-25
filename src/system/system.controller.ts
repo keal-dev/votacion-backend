@@ -17,6 +17,13 @@ export class SystemController {
     return this.systemService.resetSystem();
   }
 
+  @Post('clear-data')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async clearVotingData() {
+    return this.systemService.clearVotingData();
+  }
+
   @Get('dashboard')
   @Roles(Role.ADMIN, Role.COORDINADOR)
   async getDashboardMetrics() {
@@ -25,7 +32,7 @@ export class SystemController {
 
   @Get('resultados')
   @Roles(Role.ADMIN, Role.COORDINADOR)
-  async getResultados(@Query('distrito') distrito?: string, @Query('local') local?: string) {
-    return this.systemService.getResultados(distrito, local);
+  async getResultados(@Query('provincia') provincia?: string, @Query('distrito') distrito?: string, @Query('local') local?: string) {
+    return this.systemService.getResultados(provincia, distrito, local);
   }
 }

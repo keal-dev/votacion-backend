@@ -117,6 +117,11 @@ export class CandidatosService {
             region: local.region,
             provincia: local.provincia,
           })
+          .orWhere('candidato.cargo = :cargoConsejero AND candidato.region = :region AND candidato.provincia = :provincia', {
+            cargoConsejero: CargoCandidato.CONSEJERO,
+            region: local.region,
+            provincia: local.provincia,
+          })
           .orWhere('candidato.cargo = :cargoDistrital AND candidato.region = :region AND candidato.provincia = :provincia AND candidato.distrito = :distrito', {
             cargoDistrital: CargoCandidato.DISTRITAL,
             region: local.region,

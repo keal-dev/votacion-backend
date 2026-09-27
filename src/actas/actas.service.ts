@@ -39,6 +39,11 @@ export class ActasService {
     if (!mesa) throw new BadRequestException('Mesa no encontrada');
     if (!mesa.local) throw new BadRequestException('La mesa no tiene un local asignado');
 
+    const existingActa = await this.actaRepository.findOne({ where: { mesa: { id: mesaId } } });
+    if (existingActa) {
+      throw new BadRequestException('Ya existe un acta registrada para esta mesa');
+    }
+
     // Analizar JSON de votos
     let votosData: any;
     try {

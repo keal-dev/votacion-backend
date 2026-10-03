@@ -13,6 +13,7 @@ import { AsistenciasModule } from './asistencias/asistencias.module';
 import { ActasModule } from './actas/actas.module';
 import { SystemModule } from './system/system.module';
 import { SettingsModule } from './settings/settings.module';
+import { EncuestasModule } from './encuestas/encuestas.module';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { MaintenanceGuard } from './common/guards/maintenance.guard';
@@ -49,6 +50,7 @@ import { MaintenanceGuard } from './common/guards/maintenance.guard';
     ActasModule,
     SystemModule,
     SettingsModule,
+    EncuestasModule,
   ],
   controllers: [AppController],
   providers: [

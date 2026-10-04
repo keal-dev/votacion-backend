@@ -30,6 +30,20 @@ export class ActasController {
     return this.actasService.create(user.id, mesaId, files, observaciones, votosJson);
   }
 
+  @Post('manual')
+  async createManualActa(
+    @CurrentUser() user: any,
+    @Body('mesaId') mesaId: string,
+    @Body('votos') votos: any,
+  ) {
+    if (!mesaId) {
+      throw new BadRequestException('El mesaId es requerido');
+    }
+    
+    const votosJson = typeof votos === 'string' ? votos : JSON.stringify(votos);
+    return this.actasService.create(user.id, mesaId, [], 'Ingreso Manual (Coordinador)', votosJson);
+  }
+
   @Post(':id/fotos')
   @UseInterceptors(FilesInterceptor('fotos_actas', 5, { storage: actasStorage }))
   async uploadFotos(

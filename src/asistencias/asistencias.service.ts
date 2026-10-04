@@ -73,8 +73,8 @@ export class AsistenciasService {
 
 
 
-    asistencia.latitud_salida = updateDto.latitud;
-    asistencia.longitud_salida = updateDto.longitud;
+    asistencia.latitud_salida = updateDto.latitud ?? null;
+    asistencia.longitud_salida = updateDto.longitud ?? null;
     asistencia.fecha_salida = new Date();
 
     return this.asistenciaRepository.save(asistencia);

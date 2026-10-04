@@ -23,20 +23,20 @@ export class Asistencia {
   @JoinColumn({ name: 'election_id' })
   election: Election;
 
-  @Column({ type: 'decimal', precision: 10, scale: 6 })
-  latitud_llegada: number;
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  latitud_llegada: number | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 6 })
-  longitud_llegada: number;
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  longitud_llegada: number | null;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   fecha_llegada: Date;
 
   @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
-  latitud_salida: number;
+  latitud_salida: number | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
-  longitud_salida: number;
+  longitud_salida: number | null;
 
   @Column({ type: 'timestamp', nullable: true })
   fecha_salida: Date | null;

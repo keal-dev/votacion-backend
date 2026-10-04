@@ -1,9 +1,11 @@
 import { IsNumber, IsOptional } from 'class-validator';
 
 export class CreateAsistenciaDto {
+  @IsOptional()
   @IsNumber()
-  latitud: number;
+  latitud?: number;
 
+  @IsOptional()
   @IsNumber()
-  longitud: number;
+  longitud?: number;
 }

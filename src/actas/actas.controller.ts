@@ -35,13 +35,19 @@ export class ActasController {
     @CurrentUser() user: any,
     @Body('mesaId') mesaId: string,
     @Body('votos') votos: any,
+    @Body('isPartial') isPartial?: boolean,
   ) {
     if (!mesaId) {
       throw new BadRequestException('El mesaId es requerido');
     }
     
     const votosJson = typeof votos === 'string' ? votos : JSON.stringify(votos);
-    return this.actasService.create(user.id, mesaId, [], 'Ingreso Manual (Coordinador)', votosJson);
+    return this.actasService.upsertManual(user.id, mesaId, 'Ingreso Manual (Coordinador)', votosJson, isPartial);
+  }
+
+  @Get('mesa/:mesaId')
+  async getByMesa(@Param('mesaId') mesaId: string) {
+    return this.actasService.findByMesa(mesaId);
   }
 
   @Post(':id/fotos')
